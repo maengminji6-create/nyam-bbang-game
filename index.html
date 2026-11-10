@@ -292,11 +292,22 @@ function beep(freq, dur = 0.09, type = 'square', vol = 0.12, slide = 0) {
     o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur);
   } catch (e) {}
 }
+function noise(dur, vol, freq) {      // 총소리·폭발음용 잡음
+  if (!ac) return;
+  try {
+    const n = Math.floor(ac.sampleRate * dur), b = ac.createBuffer(1, n, ac.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2);
+    const src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+    src.buffer = b; f.type = 'lowpass'; f.frequency.value = freq; g.gain.value = vol;
+    src.connect(f).connect(g).connect(ac.destination); src.start();
+  } catch (e) {}
+}
 const sfx = {
   yum: () => { beep(660, 0.07); setTimeout(() => beep(990, 0.09), 60); },
   star: () => { [784, 988, 1319].forEach((f, i) => setTimeout(() => beep(f, 0.1, 'triangle', 0.16), i * 70)); },
   bad: () => beep(180, 0.3, 'sawtooth', 0.16, -120),
-  shot: () => beep(900, 0.08, 'square', 0.1, -700),
+  shot: () => { noise(0.12, 0.35, 3500); beep(220, 0.1, 'square', 0.08, -160); },
+  boom: good => { noise(good ? 0.3 : 0.6, good ? 0.4 : 0.6, good ? 1400 : 700); beep(good ? 110 : 70, good ? 0.25 : 0.5, 'sine', 0.35, -50); },
   tick: () => beep(520, 0.08, 'triangle', 0.15),
   go: () => beep(1040, 0.3, 'triangle', 0.18),
   end: () => { [659, 523, 392].forEach((f, i) => setTimeout(() => beep(f, 0.22, 'triangle', 0.16), i * 160)); },
@@ -318,7 +329,7 @@ function refreshMenu() {
   players = sel === '2' ? 2 : 1; online = sel === 'net';
   document.querySelectorAll('#modes .opt').forEach(b => b.classList.toggle('sel', b.dataset.mode === mode));
   document.querySelectorAll('#counts .opt').forEach(b => b.classList.toggle('sel', b.dataset.n === sel));
-  $('how').innerHTML = HOW[mode][sel] + '<br>작을수록 점수가 높아요: 큰 과일 1점, 중간 2점, 작은 과일 3점.';
+  $('how').innerHTML = HOW[mode][sel] + '<br>작을수록 점수가 높아요: 큰 과일 1점, 중간 2점, 작은 과일 3점.' + (mode === 'shoot' ? ' 스페이스바로도 쏠 수 있어요.' : '');
 }
 document.querySelectorAll('#modes .opt').forEach(b => b.onclick = () => { mode = b.dataset.mode; refreshMenu(); });
 document.querySelectorAll('#counts .opt').forEach(b => b.onclick = () => { sel = b.dataset.n; refreshMenu(); });
@@ -376,7 +387,7 @@ async function prepare() {       // 카메라와 인식 모델을 준비. 성공
       if (!lib) lib = await import(MP + '/vision_bundle.mjs');
       if (!vision) vision = await lib.FilesetResolver.forVisionTasks(MP + '/wasm');
       if (mode === 'snack') faceTask = await makeTask(lib.FaceLandmarker, FACE_MODEL, { numFaces: 2 });
-      else handTask = await makeTask(lib.HandLandmarker, HAND_MODEL, { numHands: 2 });
+      else handTask = await makeTask(lib.HandLandmarker, HAND_MODEL, { numHands: 2, minHandDetectionConfidence: 0.4, minHandPresenceConfidence: 0.4, minTrackingConfidence: 0.4 });
     }
   } catch (e) {
     console.error(e);
@@ -439,19 +450,31 @@ function renderOver() {
 }
 
 /* ---------- 점수 + 터지는 효과 ---------- */
-function burst(t, big) {
-  const cols = SPR[t.k].colors, n = big ? 70 : 46;
+let shake = 0, shakeMag = 0;
+function boom(t, p, local) {       // 과일이 터질 때: 블록 파편 + 불꽃 줄기 + 섬광 + 충격파 + 화면 흔들림
+  const good = t.pts > 0, sc = t.s || 1, hot = good ? '#ffb347' : '#ff3b3b';
+  const cols = SPR[t.k].colors, n = Math.min(170, Math.round(55 + 60 * sc + (good ? 0 : 40)));
   for (let i = 0; i < n; i++) {
-    const a = Math.random() * 6.283, v = 80 + Math.random() * 420;
-    fx.push({ kind: 'cube', x: t.x + (Math.random() - 0.5) * 70, y: t.y + (Math.random() - 0.5) * 70,
-      vx: Math.cos(a) * v, vy: Math.sin(a) * v - 160, s: 5 + Math.random() * 9,
-      color: cols[Math.floor(Math.random() * cols.length)], life: 0.7 + Math.random() * 0.7, max: 1.4 });
+    const a = Math.random() * 6.283, v = (120 + Math.random() * 620) * (0.7 + sc * 0.4);
+    fx.push({ kind: 'cube', x: t.x + (Math.random() - 0.5) * t.r, y: t.y + (Math.random() - 0.5) * t.r,
+      vx: Math.cos(a) * v, vy: Math.sin(a) * v - 200, s: (5 + Math.random() * 10) * (0.7 + sc * 0.35),
+      color: cols[Math.floor(Math.random() * cols.length)], life: 0.8 + Math.random() * 0.9, max: 1.7 });
   }
+  for (let i = 0; i < 20; i++) {
+    const a = Math.random() * 6.283, v = 700 + Math.random() * 900;
+    fx.push({ kind: 'streak', x: t.x, y: t.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, len: 0.05,
+      color: i % 3 ? hot : '#ffffff', life: 0.2 + Math.random() * 0.17, max: 0.37 });
+  }
+  fx.push({ kind: 'flash', x: t.x, y: t.y, r: 260 * (0.7 + sc * 0.5), color: good ? '255,200,120' : '255,70,50', life: 0.24, max: 0.24 });
+  fx.push({ kind: 'wave', x: t.x, y: t.y, r0: t.r * 0.5, r1: t.r * 2.6 + 90, color: '#ffffff', w: 7, life: 0.35, max: 0.35 });
+  fx.push({ kind: 'wave', x: t.x, y: t.y, r0: t.r * 0.3, r1: t.r * 1.8 + 60, color: COLORS[p], w: 12, life: 0.5, max: 0.5 });
+  if (local) { shake = good ? 0.22 : 0.45; shakeMag = (good ? 9 : 20) * (0.7 + sc * 0.4); sfx.boom(good); }
+  if (fx.length > 900) fx.splice(0, fx.length - 900);
 }
 function score(p, t, word) {
   scores[p] = Math.max(0, scores[p] + t.pts);
   if (online && p === 0) send({ t: 'hit', id: t.id, s: scores[0] });
-  burst(t, t.pts !== 1);
+  boom(t, p, true);
   const good = t.pts > 0;
   fx.push({ kind: 'word', x: t.x, y: t.y + 14, txt: good ? word : 'BOOM!', color: good ? '#ff8a1f' : '#ff3b3b', life: 0.8, max: 0.8 });
   fx.push({ kind: 'pts', x: t.x, y: t.y - 26, txt: (good ? '+' : '') + t.pts, color: good ? '#ffe27a' : '#ff3b3b', life: 0.9, max: 0.9 });
@@ -461,6 +484,10 @@ function score(p, t, word) {
 /* ---------- 인식 ---------- */
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const d2 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const segD = (pt, a, b) => {       // 점 pt 에서 선분 a-b 까지의 거리
+  const dx = b.x - a.x, dy = b.y - a.y, tt = clamp(((pt.x - a.x) * dx + (pt.y - a.y) * dy) / (dx * dx + dy * dy || 1), 0, 1);
+  return Math.hypot(pt.x - a.x - dx * tt, pt.y - a.y - dy * tt);
+};
 const sideOf = fx01 => players === 1 ? 0 : (fx01 < 0.5 ? 0 : 1);   // 거울 화면 기준 왼쪽/오른쪽
 
 function detect(now) {
@@ -492,38 +519,52 @@ function detect(now) {
       const tx = clamp((fxn - 0.5) * 1.45 + 0.5, 0, 1) * W, ty = clamp((fyn - 0.5) * 1.45 + 0.5, 0, 1) * H;
       let g = guns[p];
       if (!g) g = guns[p] = { x: tx, y: ty, armed: false, hist: [], flash: 0, lost: 0, raw: { x: fxn, y: fyn } };
-      g.x += (tx - g.x) * 0.45; g.y += (ty - g.y) * 0.45; g.lost = 0; g.raw = { x: fxn, y: fyn };
+      // 조금 움직일 땐 많이 걸러서 떨림을 줄이고, 크게 움직일 땐 바로 따라가게 한다
+      const k = clamp(Math.hypot(tx - g.x, ty - g.y) / 120, 0.18, 0.75);
+      g.x += (tx - g.x) * k; g.y += (ty - g.y) * k; g.lost = 0; g.raw = { x: fxn, y: fyn };
       g.hist.push({ t: now, x: g.x, y: g.y });
       while (g.hist.length > 1 && now - g.hist[0].t > 160) g.hist.shift();
-      // 방아쇠: 엄지 끝(4)이 검지 뿌리(5)에 가까워지면 발사. 카메라 비율을 보정해서 거리 계산
+      // 방아쇠: 엄지 끝(4)이 검지 옆(검지 뿌리 5 ~ 둘째 마디 6)에 가까워지면 발사.
+      // 손 크기·각도마다 값이 달라서, 최근에 엄지가 가장 벌어졌던 값을 기준으로 삼고 그 대비 비율로 판단한다
       const ar = (video.videoWidth || 4) / (video.videoHeight || 3);
       const q = i => ({ x: lm[i].x * ar, y: lm[i].y });
-      const trig = d2(q(4), q(5)) / (d2(q(5), q(17)) || 1);
-      if (trig > 0.85) g.armed = true;
-      else if (trig < 0.6 && g.armed) { g.armed = false; if (phase === 'play') fire(p, g); }
+      const palm = Math.max(d2(q(0), q(9)), d2(q(5), q(17))) || 1;
+      const trig = segD(q(4), q(5), q(6)) / palm;
+      g.top = Math.max(trig, (g.top || trig) - 0.004, 0.3);
+      if (trig > g.top * 0.8) g.armed = true;
+      else if (trig < g.top * 0.55 && g.armed) { g.armed = false; if (phase === 'play') fire(p, g); }
     }
     for (let p = 0; p < 2; p++) if (!seen[p] && guns[p] && ++guns[p].lost > 8) guns[p] = null;
   }
 }
 function fire(p, g) {
-  const aim = g.hist[0] || g;       // 엄지를 접을 때 손이 흔들리기 전 위치를 사용
+  const aim = g.hist[0] || g;       // 엄지를 접을 때 손이 흔들리기 전 위치도 함께 본다
   g.flash = 0.2; sfx.shot();
-  fx.push({ kind: 'ring', x: aim.x, y: aim.y, color: COLORS[p], life: 0.3, max: 0.3 });
   let best = null, bd = 1e9;
-  for (const t of things) {
-    const d = Math.hypot(t.x - aim.x, t.y - aim.y);
-    if (d < t.r + 24 && d < bd) { best = t; bd = d; }
+  for (const pt of [aim, g]) for (const t of things) {       // 조준 보정: 과일 가장자리에서 42px 안이면 명중
+    const d = Math.hypot(t.x - pt.x, t.y - pt.y) - t.r;
+    if (!t.dead && d < 42 && d < bd) { best = t; bd = d; }
   }
-  if (best) { best.dead = true; score(p, best, 'BANG!'); }
+  const hx = best ? best.x : aim.x, hy = best ? best.y : aim.y;
+  fx.push({ kind: 'tracer', x0: players === 2 ? (p ? W * 0.8 : W * 0.2) : W / 2, y0: H + 20, x: hx, y: hy, life: 0.12, max: 0.12 });
+  fx.push({ kind: 'ring', x: hx, y: hy, color: COLORS[p], life: 0.3, max: 0.3 });
+  if (best) { best.dead = true; score(p, best, 'BANG!'); return; }
+  for (let i = 0; i < 8; i++) {      // 빗나가면 작은 불꽃만
+    const a = Math.random() * 6.283, v = 300 + Math.random() * 400;
+    fx.push({ kind: 'streak', x: hx, y: hy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, len: 0.04, color: '#ffe9b0', life: 0.15, max: 0.15 });
+  }
 }
+addEventListener('keydown', e => {       // 스페이스바로도 발사 (손 인식이 잘 안 될 때)
+  if (e.code === 'Space' && phase === 'play' && mode === 'shoot' && guns[0]) { e.preventDefault(); fire(0, guns[0]); }
+});
 
 /* ---------- 생성 ---------- */
 function spawn() {
   // 온라인에서는 양쪽이 같은 씨앗으로 같은 과일 순서를 만든다 (난수는 항상 9개씩 뽑아 순서를 맞춤)
   const prog = 1 - timeLeft / GAME_SECONDS, R = Array.from({ length: 9 }, () => rng()), r = R[0];
   const busy = (players === 2 || online) ? 1.4 : 1;
-  // 크기는 0.5배~1.25배. 작을수록 맞히기 어려우니 점수가 높다 (큰 것 1점, 중간 2점, 작은 것 3점)
-  const sc = 0.5 + R[8] * 0.75, tier = sc < 0.75 ? 2 : sc < 1.0 ? 1 : 0;
+  // 크기는 0.4배~2배까지 8단계. 작을수록 맞히기 어려우니 점수가 높다 (1배 이상 1점, 중간 2점, 작은 것 3점)
+  const sc = [0.4, 0.55, 0.7, 0.85, 1, 1.25, 1.5, 2][Math.floor(R[8] * 8) % 8], tier = sc < 0.6 ? 2 : sc < 1 ? 1 : 0;
   const t = { id: spawnN++, s: sc, r: 78 * sc, rot: (R[1] - 0.5) * 0.5, vr: (R[2] - 0.5) * 1.6, g: 0 };
   if (r < 0.15) { t.k = 'bomb'; t.pts = -2; }
   else if (r < 0.22) { t.k = 'gold'; t.pts = [5, 7, 10][tier]; }
@@ -580,8 +621,10 @@ function update(dt) {
     f.life -= dt;
     if (f.kind === 'cube') { f.x += f.vx * dt; f.y += f.vy * dt; f.vy += 900 * dt; f.vx *= 0.985; }
     else if (f.kind === 'pts') f.y -= 70 * dt;
+    else if (f.kind === 'streak') { f.x += f.vx * dt; f.y += f.vy * dt; }
   }
   fx = fx.filter(f => f.life > 0);
+  if (shake > 0) shake -= dt;
   for (const g of guns) if (g && g.flash > 0) g.flash -= dt;
   for (const m of mouths) if (m && m.chomp > 0) m.chomp -= dt;
 }
@@ -687,6 +730,8 @@ function drawChomper(m, p) {       // 블록으로 된 먹보 캐릭터
 function draw() {
   drawBackground();
   if (phase !== 'countdown' && phase !== 'play') return;
+  ctx.save();
+  if (shake > 0) ctx.translate((Math.random() - 0.5) * 2 * shakeMag * shake * 4, (Math.random() - 0.5) * 2 * shakeMag * shake * 4);
   for (const t of things) drawThing(t);
   for (const f of fx) {
     const a = clamp(f.life / f.max, 0, 1);
@@ -695,12 +740,25 @@ function draw() {
       ctx.fillStyle = f.color; ctx.fillRect(f.x, f.y, f.s, f.s);
       ctx.fillStyle = 'rgba(255,255,255,.28)'; ctx.fillRect(f.x, f.y, f.s, f.s * 0.3);
       ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(f.x + f.s * 0.72, f.y, f.s * 0.28, f.s);
+    } else if (f.kind === 'flash') {
+      const gr = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.r);
+      gr.addColorStop(0, `rgba(255,255,255,${a})`); gr.addColorStop(0.25, `rgba(${f.color},${a * 0.8})`); gr.addColorStop(1, `rgba(${f.color},0)`);
+      ctx.fillStyle = gr; ctx.fillRect(f.x - f.r, f.y - f.r, f.r * 2, f.r * 2);
+    } else if (f.kind === 'wave') {
+      ctx.globalAlpha = a; ctx.strokeStyle = f.color; ctx.lineWidth = f.w * a + 1;
+      ctx.beginPath(); ctx.arc(f.x, f.y, f.r0 + (f.r1 - f.r0) * (1 - a * a), 0, 6.283); ctx.stroke();
+    } else if (f.kind === 'streak') {
+      ctx.globalAlpha = a; ctx.strokeStyle = f.color; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(f.x, f.y); ctx.lineTo(f.x - f.vx * f.len, f.y - f.vy * f.len); ctx.stroke();
+    } else if (f.kind === 'tracer') {
+      ctx.globalAlpha = a; ctx.strokeStyle = '#fff3c4'; ctx.lineWidth = 5 * a + 1; ctx.shadowColor = '#ff8a1f'; ctx.shadowBlur = 18;
+      ctx.beginPath(); ctx.moveTo(f.x0, f.y0); ctx.lineTo(f.x, f.y); ctx.stroke(); ctx.shadowBlur = 0;
     } else if (f.kind === 'ring') {
       ctx.globalAlpha = a; ctx.strokeStyle = f.color; ctx.lineWidth = 6 * a;
       ctx.beginPath(); ctx.arc(f.x, f.y, 30 + (1 - a) * 60, 0, 6.283); ctx.stroke();
     } else {
       ctx.globalAlpha = Math.min(1, a * 2);
-      text(f.txt, f.x, f.y, PX(f.kind === 'word' ? 26 : 18), f.color, 'center', 16);
+      text(f.txt, f.x, f.y, PX(f.kind === 'word' ? Math.round(30 * (1 + 1.2 * Math.max(0, a - 0.75) / 0.25)) : 20), f.color, 'center', 16);
     }
     ctx.globalAlpha = 1;
   }
@@ -712,6 +770,7 @@ function draw() {
     else drawCrosshair({ x: net.ghost.x, y: net.ghost.y, armed: !!net.ghost.a, flash: 0, ghost: true }, 1);
     ctx.globalAlpha = 1;
   }
+  ctx.restore();
 
   const who = mode === 'snack' ? mouths : guns;
   if (!who[0] && !who[1]) text(mode === 'snack' ? '얼굴이 카메라에 보이게 앉아 주세요' : '손을 카메라 앞에 들어 주세요', W / 2, H - 60, KR(26), '#c9c9d6');
@@ -822,7 +881,7 @@ function onData(d) {
     scores[1] = Math.max(0, d.s | 0);
     const t = things.find(o => o.id === d.id);
     if (t) {
-      t.dead = true; burst(t, t.pts !== 1);
+      t.dead = true; boom(t, 1, false);
       fx.push({ kind: 'word', x: t.x, y: t.y + 14, txt: t.pts > 0 ? (mode === 'snack' ? 'YUM!' : 'BANG!') : 'BOOM!', color: COLORS[1], life: 0.8, max: 0.8 });
     } else net.gone.add(d.id);
   } else if (d.t === 'end') { scores[1] = Math.max(0, d.s | 0); if (phase === 'over') renderOver(); }
@@ -861,6 +920,14 @@ if (location.hash === '#demo') {
   };
   const burstDemo = () => { text('BANG!', 150, 590, PX(26), '#ff8a1f', 'center', 16); text('+1', 150, 550, PX(18), '#ffe27a', 'center', 16); };
   setTimeout(paint, 900);
+} else if (location.hash === '#fx') {      // 확인용: 카메라 없이 터지는 효과만 본다
+  online = false; players = 1; show(null); phase = 'play';
+  setTimeout(() => {
+    const t = { id: -1, k: 'melon', x: 640, y: 330, s: 1.5, r: 117, pts: 1, rot: 0 };
+    fx.push({ kind: 'tracer', x0: W / 2, y0: H + 20, x: t.x, y: t.y, life: 0.3, max: 0.3 });
+    score(0, t, 'BANG!');
+  }, 200);
+  requestAnimationFrame(frame);
 } else requestAnimationFrame(frame);
 })();
 </script>
