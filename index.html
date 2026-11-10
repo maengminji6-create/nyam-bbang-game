@@ -51,6 +51,12 @@
   .fs { min-width:170px; border:1px solid var(--line); border-radius:6px; padding:12px 16px; font-size:17px; color:#9a9aa8; }
   .fs b { display:block; font-family:'Press Start 2P',monospace; font-size:30px; font-weight:400; margin-top:8px; }
   .fs.p1 b { color:var(--p1); } .fs.p2 b { color:var(--p2); }
+  .inp { font-family:'Press Start 2P',monospace; font-size:13px; background:#0b0b10; color:#fff; border:1px solid var(--line);
+    border-radius:4px; padding:12px; text-align:center; }
+  #llink { width:min(470px,100%); font-size:10px; } #lin { width:160px; text-transform:uppercase; }
+  .lrow { display:flex; gap:10px; justify-content:center; align-items:center; flex-wrap:wrap; margin-top:14px; }
+  .lrow .btn.ghost { margin-top:0; }
+  #lcode { font-size:clamp(34px,7vw,60px); letter-spacing:8px; }
 </style>
 </head>
 <body>
@@ -73,7 +79,8 @@
     <div class="label px">PLAYERS</div>
     <div class="row" id="counts">
       <button class="opt small" data-n="1"><span class="t">혼자</span></button>
-      <button class="opt small sel" data-n="2"><span class="t">둘이서 대결</span></button>
+      <button class="opt small sel" data-n="net"><span class="t">온라인 대결</span></button>
+      <button class="opt small" data-n="2"><span class="t">한 화면에서 둘이</span></button>
     </div>
 
     <div class="how" id="how"></div>
@@ -83,6 +90,18 @@
 
 <div class="panel" id="info"><div class="card"><div id="msg"></div><button class="btn ghost" id="back" style="display:none">돌아가기</button></div></div>
 
+<div class="panel" id="lobby">
+  <div class="card">
+    <div class="kicker px">ONLINE MATCH · INVITE CODE</div>
+    <p class="winner px" id="lcode"></p>
+    <p class="sub" id="lstat"></p>
+    <div class="lrow" id="linvite"><input class="inp" id="llink" readonly><button class="btn ghost" id="lcopy">링크 복사</button></div>
+    <div class="lrow" id="ljoin"><input class="inp" id="lin" maxlength="8" placeholder="CODE"><button class="btn ghost" id="lgo">코드로 참가</button></div>
+    <button class="btn" id="lstart" style="display:none">START</button><br>
+    <button class="btn ghost" id="lback">돌아가기</button>
+  </div>
+</div>
+
 <div class="panel" id="over">
   <div class="card">
     <div class="kicker px">GAME OVER</div>
@@ -90,7 +109,7 @@
     <p class="sub" id="comment"></p>
     <div class="final">
       <div class="fs p1"><span id="fn1">플레이어 1</span><b id="f1">0</b></div>
-      <div class="fs p2" id="fbox2"><span>플레이어 2</span><b id="f2">0</b></div>
+      <div class="fs p2" id="fbox2"><span id="fn2">플레이어 2</span><b id="f2">0</b></div>
     </div>
     <button class="btn" id="again">RETRY</button><br>
     <button class="btn ghost" id="tomenu">게임 바꾸기</button>
@@ -248,7 +267,10 @@ $('ic1').getContext('2d').drawImage(SPR.apple.cv, 0, 0, 184, 184);
 $('ic2').getContext('2d').drawImage(SPR.berry.cv, 0, 0, 184, 184);
 
 /* ---------- 상태 ---------- */
-let mode = 'shoot', players = 2;
+let mode = 'shoot', players = 1, sel = 'net', online = true;   // sel: '1' 혼자 | 'net' 온라인 | '2' 한 화면 둘이
+const net = { peer: null, conn: null, host: false, code: '', ui: 'host', seed: 1, selfReady: false, peerReady: false,
+  ghost: null, gone: new Set(), lastSend: 0 };
+let rng = Math.random, spawnN = 0;
 let phase = 'menu';            // menu | loading | countdown | play | over
 let scores = [0, 0], timeLeft = GAME_SECONDS, countdown = 0, lastTick = 4, clock = 0;
 let things = [], fx = [], spawnT = 0;
@@ -282,30 +304,49 @@ const sfx = {
 
 /* ---------- 메뉴 ---------- */
 const HOW = {
-  shoot: ['검지를 펴고 엄지를 세워 손가락 총을 만드세요. 검지 끝이 조준점이에요.<br>엄지를 검지 쪽으로 딸깍 접으면 발사! 황금사과는 5점, 폭탄은 쏘면 감점.',
-          '카메라 기준 왼쪽 사람이 플레이어 1, 오른쪽이 플레이어 2.<br>검지로 조준하고 엄지를 딸깍 접으면 발사! 황금사과 5점, 폭탄은 감점.'],
-  snack: ['고개를 움직이면 화면 속 먹보가 따라 움직여요. 입을 크게 벌리면 먹보도 입을 벌려요.<br>과일 +1, 황금사과 +5, 폭탄은 먹으면 감점!',
-          '둘이 나란히 앉으세요. 왼쪽 사람이 분홍 먹보, 오른쪽 사람이 파랑 먹보.<br>고개로 움직이고 입을 벌려 먼저 먹는 쪽이 점수를 가져가요. 폭탄은 감점!'],
+  shoot: {
+    '1': '검지를 펴고 엄지를 세워 손가락 총을 만드세요. 검지 끝이 조준점이에요.<br>엄지를 검지 쪽으로 딸깍 접으면 발사! 황금사과는 5점, 폭탄은 쏘면 감점.',
+    'net': '초대 링크나 코드를 친구에게 보내서 각자 자기 카메라로 대결해요.<br>양쪽 화면에 같은 과일이 나오고, 먼저 쏜 사람이 점수를 가져가요.',
+    '2': '한 카메라 앞에 둘이 나란히. 왼쪽 사람이 플레이어 1, 오른쪽이 플레이어 2.<br>검지로 조준하고 엄지를 딸깍 접으면 발사! 황금사과 5점, 폭탄은 감점.' },
+  snack: {
+    '1': '고개를 움직이면 화면 속 먹보가 따라 움직여요. 입을 크게 벌리면 먹보도 입을 벌려요.<br>과일 +1, 황금사과 +5, 폭탄은 먹으면 감점!',
+    'net': '초대 링크나 코드를 친구에게 보내서 각자 자기 카메라로 대결해요.<br>양쪽 화면에 같은 과일이 떨어지고, 먼저 먹는 사람이 점수를 가져가요.',
+    '2': '한 카메라 앞에 둘이 나란히. 왼쪽 사람이 분홍 먹보, 오른쪽 사람이 파랑 먹보.<br>고개로 움직이고 입을 벌려 먼저 먹는 쪽이 점수를 가져가요. 폭탄은 감점!' },
 };
+const modeName = () => mode === 'snack' ? '과일 받아먹기' : '손가락 총쏘기';
 function refreshMenu() {
+  players = sel === '2' ? 2 : 1; online = sel === 'net';
   document.querySelectorAll('#modes .opt').forEach(b => b.classList.toggle('sel', b.dataset.mode === mode));
-  document.querySelectorAll('#counts .opt').forEach(b => b.classList.toggle('sel', +b.dataset.n === players));
-  $('how').innerHTML = HOW[mode][players - 1];
+  document.querySelectorAll('#counts .opt').forEach(b => b.classList.toggle('sel', b.dataset.n === sel));
+  $('how').innerHTML = HOW[mode][sel];
 }
 document.querySelectorAll('#modes .opt').forEach(b => b.onclick = () => { mode = b.dataset.mode; refreshMenu(); });
-document.querySelectorAll('#counts .opt').forEach(b => b.onclick = () => { players = +b.dataset.n; refreshMenu(); });
+document.querySelectorAll('#counts .opt').forEach(b => b.onclick = () => { sel = b.dataset.n; refreshMenu(); });
 refreshMenu();
 
 function show(id) {
-  ['menu', 'info', 'over'].forEach(p => $(p).classList.toggle('on', p === id));
+  ['menu', 'info', 'over', 'lobby'].forEach(p => $(p).classList.toggle('on', p === id));
   $('quit').classList.toggle('on', id === null);
 }
 function info(html, canBack) { $('msg').innerHTML = html; $('back').style.display = canBack ? '' : 'none'; show('info'); }
-$('back').onclick = () => { phase = 'menu'; show('menu'); };
-$('tomenu').onclick = () => { phase = 'menu'; show('menu'); };
-$('quit').onclick = () => { phase = 'menu'; show('menu'); };
+const linked = () => !!(net.conn && net.conn.open);
+const toMenu = keep => { if (!keep) netClose(); phase = 'menu'; show('menu'); };
+$('back').onclick = () => toMenu(false);
+$('lback').onclick = () => toMenu(false);
+$('quit').onclick = () => toMenu(false);
+$('tomenu').onclick = () => toMenu(online && net.host && linked());   // 방장은 연결을 유지한 채 게임만 바꿀 수 있다
 $('start').onclick = begin;
-$('again').onclick = begin;
+$('again').onclick = () => {
+  if (online && linked() && !net.host) { initAudio(); send({ t: 'rematch' }); lobbyUI('방장에게 한 판 더 하자고 보냈어요. 기다리는 중…'); }
+  else begin();
+};
+$('lstart').onclick = () => { initAudio(); netStart(); };
+$('lgo').onclick = () => { const c = $('lin').value.trim().toUpperCase(); if (/^[A-Z0-9]{3,8}$/.test(c)) { initAudio(); joinRoom(c); } };
+$('lcopy').onclick = async () => {
+  const el = $('llink');
+  try { await navigator.clipboard.writeText(el.value); } catch (e) { el.select(); try { document.execCommand('copy'); } catch (e2) {} }
+  $('lcopy').textContent = '복사됨!'; setTimeout(() => { $('lcopy').textContent = '링크 복사'; }, 1500);
+};
 
 /* ---------- 준비: 카메라 + 인식 모델 ---------- */
 async function makeTask(Cls, url, extra) {
@@ -313,9 +354,12 @@ async function makeTask(Cls, url, extra) {
     baseOptions: { modelAssetPath: url, delegate }, runningMode: 'VIDEO', ...extra });
   try { return await build('GPU'); } catch (e) { return await build('CPU'); }
 }
-async function begin() {
+function initAudio() {
   if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
   if (ac && ac.state === 'suspended') ac.resume();
+}
+async function prepare() {       // 카메라와 인식 모델을 준비. 성공하면 true
+  initAudio();
   phase = 'loading';
   try {
     if (!camReady) {
@@ -347,29 +391,44 @@ async function begin() {
       ? '카메라를 쓸 수 없어요.<small>' + why + '<br>(오류: ' + (n || (e && e.message) || '알 수 없음') + ')</small>'
       : '인식 모델을 불러오지 못했어요.<small>인터넷 연결을 확인하고 다시 시도해 주세요.</small>', true);
     phase = 'menu';
-    return;
+    return false;
   }
-  startRound();
+  return true;
+}
+async function begin() {
+  initAudio();
+  if (!online) { netClose(); if (await prepare()) startRound(); return; }
+  if (linked()) { if (net.host) netStart(); else lobbyUI('방장이 시작하기를 기다리는 중…'); return; }
+  hostRoom();
 }
 
 function startRound() {
   scores = [0, 0]; things = []; fx = []; mouths = [null, null]; guns = [null, null];
+  spawnN = 0; rng = online ? mulberry32(net.seed) : Math.random; net.gone = new Set(); net.ghost = null;
   timeLeft = GAME_SECONDS; spawnT = 0.6; countdown = 3.999; lastTick = 4;
   show(null);
   phase = 'countdown';
 }
 function endRound() {
   phase = 'over'; sfx.end();
+  if (online) send({ t: 'end', s: scores[0] });
+  renderOver();
+}
+function renderOver() {
+  const two = players === 2 || online;
   $('f1').textContent = scores[0]; $('f2').textContent = scores[1];
-  $('fbox2').style.display = players === 2 ? '' : 'none';
-  $('fn1').textContent = players === 2 ? '플레이어 1' : '내 점수';
+  $('fbox2').style.display = two ? '' : 'none';
+  $('fn1').textContent = online ? '나' : players === 2 ? '플레이어 1' : '내 점수';
+  $('fn2').textContent = online ? '친구' : '플레이어 2';
+  const diff = Math.abs(scores[0] - scores[1]);
   let w, c;
-  if (players === 2) {
-    if (scores[0] === scores[1]) { w = 'DRAW'; c = '무승부! 이건 한 판 더 해야겠는데요?'; }
-    else {
-      const win = scores[0] > scores[1] ? 1 : 2;
-      w = `PLAYER ${win} WIN`; c = `플레이어 ${win}이(가) ${Math.abs(scores[0] - scores[1])}점 차이로 이겼어요.`;
-    }
+  if (two && diff === 0) { w = 'DRAW'; c = '무승부! 이건 한 판 더 해야겠는데요?'; }
+  else if (online) {
+    const win = scores[0] > scores[1];
+    w = win ? 'YOU WIN' : 'YOU LOSE'; c = win ? `${diff}점 차이로 이겼어요!` : `${diff}점 차이로 졌어요. 한 판 더?`;
+  } else if (players === 2) {
+    const win = scores[0] > scores[1] ? 1 : 2;
+    w = `PLAYER ${win} WIN`; c = `플레이어 ${win}이(가) ${diff}점 차이로 이겼어요.`;
   } else {
     const s = scores[0];
     w = `SCORE ${s}`;
@@ -391,6 +450,7 @@ function burst(t, big) {
 }
 function score(p, t, word) {
   scores[p] = Math.max(0, scores[p] + t.pts);
+  if (online && p === 0) send({ t: 'hit', id: t.id, s: scores[0] });
   burst(t, t.pts !== 1);
   const good = t.pts > 0;
   fx.push({ kind: 'word', x: t.x, y: t.y + 14, txt: good ? word : 'BOOM!', color: good ? '#ff8a1f' : '#ff3b3b', life: 0.8, max: 0.8 });
@@ -459,29 +519,37 @@ function fire(p, g) {
 
 /* ---------- 생성 ---------- */
 function spawn() {
-  const prog = 1 - timeLeft / GAME_SECONDS, r = Math.random();
-  const t = { r: 78, rot: (Math.random() - 0.5) * 0.5, vr: (Math.random() - 0.5) * 1.2, g: 0 };
+  // 온라인에서는 양쪽이 같은 씨앗으로 같은 과일 순서를 만든다 (난수는 항상 8개씩 뽑아 순서를 맞춤)
+  const prog = 1 - timeLeft / GAME_SECONDS, R = Array.from({ length: 8 }, () => rng()), r = R[0];
+  const busy = (players === 2 || online) ? 1.4 : 1;
+  const t = { id: spawnN++, r: 78, rot: (R[1] - 0.5) * 0.5, vr: (R[2] - 0.5) * 1.2, g: 0 };
   if (r < 0.15) { t.k = 'bomb'; t.pts = -2; }
   else if (r < 0.22) { t.k = 'gold'; t.pts = 5; }
-  else { t.k = GOOD[Math.floor(Math.random() * GOOD.length)]; t.pts = 1; }
+  else { t.k = GOOD[Math.floor(R[3] * GOOD.length) % GOOD.length]; t.pts = 1; }
   if (mode === 'shoot') {       // 아래에서 위로 던져 올림
-    t.x = (0.12 + Math.random() * 0.76) * W; t.y = H + 90;
-    t.vx = (W / 2 - t.x) * (0.15 + Math.random() * 0.4) + (Math.random() - 0.5) * 80;
-    t.vy = -(640 + Math.random() * 150); t.g = 500 + prog * 110;
+    t.x = (0.12 + R[4] * 0.76) * W; t.y = H + 90;
+    t.vx = (W / 2 - t.x) * (0.15 + R[5] * 0.4) + (R[6] - 0.5) * 80;
+    t.vy = -(640 + R[7] * 150); t.g = 500 + prog * 110;
     if (t.k === 'gold') { t.vy *= 1.05; t.g *= 1.25; }
-    spawnT = Math.max(0.5, 1.0 - prog * 0.45) / (players === 2 ? 1.4 : 1);
+    spawnT = Math.max(0.5, 1.0 - prog * 0.45) / busy;
   } else {                      // 위에서 떨어짐
-    t.x = (0.07 + Math.random() * 0.86) * W; t.y = -90; t.vx = 0;
-    t.vy = 170 + Math.random() * 90 + prog * 150;
+    t.x = (0.07 + R[4] * 0.86) * W; t.y = -90; t.vx = 0;
+    t.vy = 170 + R[5] * 90 + prog * 150;
     if (t.k === 'gold') t.vy *= 1.3;
-    spawnT = Math.max(0.36, 0.85 - prog * 0.4) / (players === 2 ? 1.4 : 1);
+    spawnT = Math.max(0.36, 0.85 - prog * 0.4) / busy;
   }
+  if (online && net.gone.has(t.id)) return;      // 친구가 이미 가져간 과일
   things.push(t);
 }
 
 /* ---------- 업데이트 ---------- */
 function update(dt) {
   clock += dt;
+  if (online && (phase === 'play' || phase === 'countdown') && clock - net.lastSend > 0.08) {     // 내 조준점을 친구에게 보냄
+    net.lastSend = clock;
+    const o = mode === 'snack' ? mouths[0] : guns[0];
+    if (o) send({ t: 'pos', x: Math.round(o.x), y: Math.round(o.y), a: mode === 'snack' ? +o.amt.toFixed(2) : (o.armed ? 1 : 0) });
+  }
   if (phase === 'countdown') {
     countdown -= dt;
     const n = Math.floor(countdown);
@@ -537,13 +605,13 @@ function drawHud() {
   const lv = Math.min(3, 1 + Math.floor((GAME_SECONDS - timeLeft) / 20));
   const tsec = String(Math.ceil(timeLeft)).padStart(2, '0');
   const hurry = timeLeft <= 10 && Math.floor(clock * 4) % 2 === 0;
-  if (players === 1) {
+  if (players === 1 && !online) {
     text(`SCORE: ${scores[0]}`, W / 2 - 20, 34, PX(18), '#59e6ff', 'right', 10);
     text(`LEVEL ${lv}`, W / 2 + 20, 34, PX(12), '#59e6ff', 'left');
     text(`TIME ${tsec}`, W - 30, 34, PX(14), hurry ? '#ff3b3b' : '#ff8a1f', 'right', 8);
   } else {
-    text(`P1: ${scores[0]}`, 30, 34, PX(18), COLORS[0], 'left', 10);
-    text(`P2: ${scores[1]}`, W - 30, 34, PX(18), COLORS[1], 'right', 10);
+    text(`${online ? 'ME' : 'P1'}: ${scores[0]}`, 30, 34, PX(18), COLORS[0], 'left', 10);
+    text(`${online ? 'FRIEND' : 'P2'}: ${scores[1]}`, W - 30, 34, PX(18), COLORS[1], 'right', 10);
     text(`TIME ${tsec}`, W / 2, 28, PX(16), hurry ? '#ff3b3b' : '#ff8a1f', 'center', 8);
     text(`LEVEL ${lv}`, W / 2, 50, PX(9), '#59e6ff');
   }
@@ -590,8 +658,9 @@ function drawCrosshair(g, p) {
   for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { ctx.moveTo(g.x + dx * 8, g.y + dy * 8); ctx.lineTo(g.x + dx * 20, g.y + dy * 20); }
   ctx.stroke();
   ctx.fillStyle = col; ctx.fillRect(g.x - 2.5, g.y - 2.5, 5, 5);
-  if (players === 2) text('P' + (p + 1), g.x, g.y - r - 14, PX(9), col);
-  if (!g.armed && g.flash <= 0) text('엄지를 세워 장전', g.x, g.y + r + 20, KR(19), '#c9c9d6');
+  const tag = online ? (p ? 'FRIEND' : 'ME') : players === 2 ? 'P' + (p + 1) : '';
+  if (tag) text(tag, g.x, g.y - r - 14, PX(9), col);
+  if (!g.ghost && !g.armed && g.flash <= 0) text('엄지를 세워 장전', g.x, g.y + r + 20, KR(19), '#c9c9d6');
 }
 function drawChomper(m, p) {       // 블록으로 된 먹보 캐릭터
   const col = COLORS[p], u = 10, bw = 15, bh = 13;        // 가로 15칸 x 세로 13칸
@@ -609,8 +678,9 @@ function drawChomper(m, p) {       // 블록으로 된 먹보 캐릭터
   for (let i = 2; i < bw - 1; i++) { ctx.moveTo(x0 + i * u, y0 + u); ctx.lineTo(x0 + i * u, y0 + 12 * u); }
   for (let j = 2; j < bh - 1; j++) { ctx.moveTo(x0 + u, y0 + j * u); ctx.lineTo(x0 + 14 * u, y0 + j * u); }
   ctx.stroke();
-  if (players === 2) text('P' + (p + 1), m.x, y0 - 26, PX(10), col);
-  if (m.amt < 0.4) text('아~ 벌려요', m.x, y0 + bh * u + 20, KR(20), '#c9c9d6');
+  const tag = online ? (p ? 'FRIEND' : 'ME') : players === 2 ? 'P' + (p + 1) : '';
+  if (tag) text(tag, m.x, y0 - 26, PX(10), col);
+  if (!m.ghost && m.amt < 0.4) text('아~ 벌려요', m.x, y0 + bh * u + 20, KR(20), '#c9c9d6');
 }
 function draw() {
   drawBackground();
@@ -634,6 +704,12 @@ function draw() {
   }
   if (mode === 'snack') mouths.forEach((m, p) => { if (m) drawChomper(m, p); });
   else guns.forEach((g, p) => { if (g) drawCrosshair(g, p); });
+  if (online && net.ghost && performance.now() - net.ghost.t < 1200) {      // 친구의 조준점을 반투명하게 표시
+    ctx.globalAlpha = 0.45;
+    if (mode === 'snack') drawChomper({ x: net.ghost.x, y: net.ghost.y, amt: net.ghost.a, chomp: 0, ghost: true }, 1);
+    else drawCrosshair({ x: net.ghost.x, y: net.ghost.y, armed: !!net.ghost.a, flash: 0, ghost: true }, 1);
+    ctx.globalAlpha = 1;
+  }
 
   const who = mode === 'snack' ? mouths : guns;
   if (!who[0] && !who[1]) text(mode === 'snack' ? '얼굴이 카메라에 보이게 앉아 주세요' : '손을 카메라 앞에 들어 주세요', W / 2, H - 60, KR(26), '#c9c9d6');
@@ -642,6 +718,113 @@ function draw() {
     const n = Math.floor(countdown);
     text(n >= 1 ? String(n) : 'GO!', W / 2, H / 2, PX(n >= 1 ? 150 : 110), '#ff8a1f', 'center', 40);
   }
+}
+
+/* ---------- 온라인 대결: 브라우저끼리 직접 연결 (PeerJS / WebRTC) ---------- */
+const ROOM = 'nyambbang-room-';
+function mulberry32(a) {
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+function send(o) { try { if (linked()) net.conn.send(o); } catch (e) {} }
+function netClose() {
+  const p = net.peer; net.peer = null; net.conn = null; net.selfReady = net.peerReady = false; net.ghost = null;
+  if (p) { try { p.destroy(); } catch (e) {} }
+}
+function lobbyUI(stat, ui) {       // ui: 'host' 방 만든 쪽 대기 | 'join' 참가 대기 | 'linked' 연결됨
+  if (ui) net.ui = ui;
+  const on = net.ui === 'linked';
+  $('lstat').innerHTML = stat; $('lcode').textContent = net.code || '';
+  $('linvite').style.display = net.ui === 'host' ? '' : 'none';
+  $('ljoin').style.display = on ? 'none' : '';
+  $('lstart').style.display = on && net.host ? '' : 'none';
+  show('lobby');
+}
+function loadPeerLib() {
+  return new Promise(res => {
+    if (window.Peer) return res(true);
+    const s = document.createElement('script');
+    s.src = 'https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js';
+    s.onload = () => res(!!window.Peer);
+    s.onerror = () => { lobbyUI('연결 도구를 불러오지 못했어요. 인터넷 연결을 확인해 주세요.'); res(false); };
+    document.head.appendChild(s);
+  });
+}
+async function hostRoom() {
+  netClose(); net.host = true;
+  net.code = Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]).join('');
+  $('llink').value = location.origin + location.pathname + '?room=' + net.code;
+  lobbyUI('방을 만드는 중…', 'host');
+  if (!(await loadPeerLib())) return;
+  const peer = net.peer = new Peer(ROOM + net.code);
+  peer.on('open', () => { if (net.peer === peer && !linked()) lobbyUI('친구에게 초대 링크나 위 코드를 보내 주세요.<br>친구가 들어오면 여기서 시작할 수 있어요.', 'host'); });
+  peer.on('connection', c => { if (net.peer !== peer || net.conn) { try { c.close(); } catch (e) {} return; } bindConn(c, peer); });
+  peer.on('error', e => netError(e, peer));
+}
+async function joinRoom(code) {
+  netClose(); net.host = false; net.code = code;
+  lobbyUI('방에 들어가는 중…', 'join');
+  if (!(await loadPeerLib())) return;
+  const peer = net.peer = new Peer();
+  peer.on('open', () => { if (net.peer === peer) bindConn(peer.connect(ROOM + code, { reliable: true }), peer); });
+  peer.on('error', e => netError(e, peer));
+}
+function netError(e, peer) {
+  if (net.peer !== peer) return;
+  const ty = e && e.type;
+  if (ty === 'unavailable-id' && net.host) { hostRoom(); return; }       // 코드가 겹치면 새 코드로
+  if (linked()) return;
+  net.conn = null;
+  lobbyUI(ty === 'peer-unavailable' ? '그 코드의 방을 찾지 못했어요. 코드를 다시 확인해 주세요.'
+    : '연결에 문제가 생겼어요. 잠시 뒤 다시 시도해 주세요. (' + (ty || 'error') + ')', net.host ? 'host' : 'join');
+}
+function bindConn(c, peer) {
+  net.conn = c;
+  c.on('open', () => {
+    if (net.peer !== peer) return;
+    sfx.go();
+    lobbyUI(net.host ? '친구가 들어왔어요! START를 누르면 시작해요.<br>게임: ' + modeName() : '연결됐어요! 방장이 시작하기를 기다리는 중…', 'linked');
+  });
+  c.on('data', d => { if (net.peer === peer) onData(d); });
+  c.on('close', () => { if (net.peer !== peer) return; netClose(); phase = 'menu'; info('친구와의 연결이 끊어졌어요.', true); });
+}
+function netStart() {             // 방장만: 게임 종류와 씨앗을 보내고 양쪽 준비를 시작
+  if (!(net.host && linked())) return;
+  net.seed = Math.floor(Math.random() * 2147483647); net.peerReady = false;
+  send({ t: 'start', mode, seed: net.seed });
+  netPrepare();
+}
+async function netPrepare() {
+  const peer = net.peer; net.selfReady = false;
+  const ok = await prepare();
+  if (net.peer !== peer) return;
+  if (!ok) { send({ t: 'fail' }); return; }
+  net.selfReady = true; send({ t: 'ready' });
+  maybeGo();
+  if (phase === 'loading') info(net.host ? '친구가 준비하는 중…' : '곧 시작해요…');
+}
+function maybeGo() {
+  if (!(net.host && net.selfReady && net.peerReady)) return;
+  net.selfReady = net.peerReady = false; send({ t: 'go' }); startRound();
+}
+function onData(d) {
+  if (!d || typeof d !== 'object') return;
+  if (d.t === 'start' && !net.host) {
+    if (d.mode === 'snack' || d.mode === 'shoot') mode = d.mode;
+    net.seed = d.seed | 0; refreshMenu(); netPrepare();
+  } else if (d.t === 'ready') { net.peerReady = true; maybeGo(); }
+  else if (d.t === 'go' && !net.host) startRound();
+  else if (d.t === 'fail') { phase = 'menu'; lobbyUI('친구 쪽 카메라가 준비되지 않았어요. 친구가 카메라를 허용한 뒤 다시 시작해 주세요.', 'linked'); }
+  else if (d.t === 'pos') net.ghost = { x: +d.x || 0, y: +d.y || 0, a: +d.a || 0, t: performance.now() };
+  else if (d.t === 'hit') {
+    scores[1] = Math.max(0, d.s | 0);
+    const t = things.find(o => o.id === d.id);
+    if (t) {
+      t.dead = true; burst(t, t.pts !== 1);
+      fx.push({ kind: 'word', x: t.x, y: t.y + 14, txt: t.pts > 0 ? (mode === 'snack' ? 'YUM!' : 'BANG!') : 'BOOM!', color: COLORS[1], life: 0.8, max: 0.8 });
+    } else net.gone.add(d.id);
+  } else if (d.t === 'end') { scores[1] = Math.max(0, d.s | 0); if (phase === 'over') renderOver(); }
+  else if (d.t === 'rematch' && net.host && (phase === 'over' || phase === 'menu')) netStart();
 }
 
 /* ---------- 메인 루프 ---------- */
@@ -656,6 +839,13 @@ function frame(now) {
   update(dt); draw();
 }
 if (document.fonts && document.fonts.load) { document.fonts.load('16px "Press Start 2P"'); document.fonts.load('16px "Do Hyeon"'); }
+
+// 초대 링크(?room=코드)로 들어온 경우: 참가 화면부터 보여 준다
+const invited = (new URLSearchParams(location.search).get('room') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+if (invited) {
+  sel = 'net'; refreshMenu(); net.host = false; net.code = invited; $('lin').value = invited;
+  lobbyUI('친구의 방에 초대받았어요! 아래 "코드로 참가"를 눌러 주세요.', 'join');
+}
 
 // 확인용: 주소 끝에 #demo 를 붙이면 카메라 없이 과일 모양만 볼 수 있다
 if (location.hash === '#demo') {
