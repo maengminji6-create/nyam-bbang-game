@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>냠냠 빵야! - 복셀 과일 게임</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  :root { --p1:#ff4f8b; --p2:#35b6ff; --hot:#ff8a1f; --cy:#59e6ff; --ink:#000; --line:#2a2a33; --txt:#e9e9f2; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:#000; color:var(--txt);
+    font-family:'Do Hyeon','Apple SD Gothic Neo','Malgun Gothic',sans-serif; overflow:hidden; user-select:none; }
+  #stage { position:fixed; inset:0; }
+  canvas { width:100%; height:100%; object-fit:contain; display:block; background:#000; }
+  video { display:none; }
+  .px { font-family:'Press Start 2P',monospace; }
+
+  #quit { position:fixed; left:14px; bottom:12px; display:none; }
+  #quit.on { display:block; }
+
+  .panel { position:fixed; inset:0; display:none; place-items:center; padding:20px; overflow:auto;
+    background:radial-gradient(ellipse at 50% 0%, rgba(255,138,31,.13), transparent 55%), rgba(0,0,0,.94); }
+  .panel.on { display:grid; }
+  .card { width:min(760px,100%); text-align:center; }
+  .kicker { font-size:11px; letter-spacing:3px; color:var(--hot); }
+  h1 { font-size:clamp(50px,9vw,92px); margin:14px 0 4px; font-weight:400; letter-spacing:2px; color:#fff;
+    text-shadow:0 0 28px rgba(255,138,31,.55); }
+  h1 em { font-style:normal; color:var(--hot); }
+  .sub { font-size:19px; color:#9a9aa8; margin:0 0 26px; }
+  .label { font-size:10px; letter-spacing:2px; color:#6d6d7c; margin:20px 0 10px; }
+  .row { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+  .opt { flex:1 1 250px; max-width:340px; background:#0b0b10; color:var(--txt); border:1px solid var(--line);
+    border-radius:6px; padding:14px 14px 16px; cursor:pointer; font:inherit; transition:border-color .12s, box-shadow .12s; }
+  .opt:hover { border-color:#55556a; }
+  .opt canvas { width:92px; height:92px; background:transparent; display:block; margin:0 auto 2px; }
+  .opt .t { font-size:25px; display:block; }
+  .opt .d { font-size:15px; color:#8b8b99; display:block; margin-top:3px; }
+  .opt.sel { border-color:var(--hot); box-shadow:0 0 0 1px var(--hot), 0 0 26px rgba(255,138,31,.28); }
+  .opt.small { flex:0 1 170px; padding:11px; } .opt.small .t { font-size:21px; }
+  .btn { font-family:'Press Start 2P',monospace; font-size:17px; color:#000; background:var(--hot); border:0; border-radius:4px;
+    padding:17px 40px; margin-top:26px; cursor:pointer; box-shadow:0 0 30px rgba(255,138,31,.45); }
+  .btn:hover { background:#ffa64d; }
+  .btn.ghost { font-family:inherit; font-size:17px; background:transparent; color:#9a9aa8; border:1px solid var(--line);
+    box-shadow:none; padding:8px 18px; margin-top:14px; }
+  .how { font-size:17px; line-height:1.6; color:#a9a9b8; margin-top:20px; min-height:56px; }
+  #msg { font-size:27px; line-height:1.5; }
+  #msg small { display:block; font-size:17px; color:#9a9aa8; margin-top:10px; }
+  .winner { font-size:clamp(22px,4.4vw,40px); margin:14px 0 14px; color:var(--hot); line-height:1.5; text-shadow:0 0 24px rgba(255,138,31,.5); }
+  .final { display:flex; gap:14px; justify-content:center; margin-top:18px; }
+  .fs { min-width:170px; border:1px solid var(--line); border-radius:6px; padding:12px 16px; font-size:17px; color:#9a9aa8; }
+  .fs b { display:block; font-family:'Press Start 2P',monospace; font-size:30px; font-weight:400; margin-top:8px; }
+  .fs.p1 b { color:var(--p1); } .fs.p2 b { color:var(--p2); }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="cv" width="1280" height="720"></canvas></div>
+<video id="video" playsinline muted></video>
+<button class="btn ghost" id="quit">그만하기</button>
+
+<div class="panel on" id="menu">
+  <div class="card">
+    <div class="kicker px">VOXEL FRUIT ARCADE</div>
+    <h1>냠냠 <em>빵야!</em></h1>
+    <p class="sub">카메라는 구석에 작게, 화면에는 과일만</p>
+
+    <div class="label px">SELECT GAME</div>
+    <div class="row" id="modes">
+      <button class="opt sel" data-mode="shoot"><canvas id="ic1" width="184" height="184"></canvas><span class="t">손가락 총쏘기</span><span class="d">손가락 총으로 과일을 빵야!</span></button>
+      <button class="opt" data-mode="snack"><canvas id="ic2" width="184" height="184"></canvas><span class="t">과일 받아먹기</span><span class="d">입을 벌려 떨어지는 과일을 냠!</span></button>
+    </div>
+
+    <div class="label px">PLAYERS</div>
+    <div class="row" id="counts">
+      <button class="opt small" data-n="1"><span class="t">혼자</span></button>
+      <button class="opt small sel" data-n="2"><span class="t">둘이서 대결</span></button>
+    </div>
+
+    <div class="how" id="how"></div>
+    <button class="btn" id="start">START</button>
+  </div>
+</div>
+
+<div class="panel" id="info"><div class="card"><div id="msg"></div><button class="btn ghost" id="back" style="display:none">돌아가기</button></div></div>
+
+<div class="panel" id="over">
+  <div class="card">
+    <div class="kicker px">GAME OVER</div>
+    <p class="winner px" id="winner"></p>
+    <p class="sub" id="comment"></p>
+    <div class="final">
+      <div class="fs p1"><span id="fn1">플레이어 1</span><b id="f1">0</b></div>
+      <div class="fs p2" id="fbox2"><span>플레이어 2</span><b id="f2">0</b></div>
+    </div>
+    <button class="btn" id="again">RETRY</button><br>
+    <button class="btn ghost" id="tomenu">게임 바꾸기</button>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const GAME_SECONDS = 60;
+const COLORS = ['#ff4f8b', '#35b6ff'];
+const W = 1280, H = 720;
+const PIP = { w: 208, h: 156, x: W - 208 - 18, y: H - 156 - 18 };
+
+const $ = id => document.getElementById(id);
+const canvas = $('cv'), ctx = canvas.getContext('2d'), video = $('video');
+
+/* =========================================================
+   복셀 과일: 3D 격자에 모양을 채우고 블록 하나하나를 그려서 스프라이트로 만든다
+   ========================================================= */
+/*VOX-START*/
+const hash = (i, j, k) => { const s = Math.sin(i * 12.9898 + j * 78.233 + k * 37.719) * 43758.5453; return s - Math.floor(s); };
+const pal = (p, h) => p[Math.floor(h * p.length) % p.length];
+const segDist = (x, y, z, a, b) => {
+  const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
+  let t = ((x - a[0]) * dx + (y - a[1]) * dy + (z - a[2]) * dz) / (dx * dx + dy * dy + dz * dz);
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(x - a[0] - dx * t, y - a[1] - dy * t, z - a[2] - dz * t);
+};
+const RED = ['#e02b20', '#c91d15', '#ef4335', '#b3140f', '#d9261c'];
+const GOLD = ['#ffd23f', '#ffbf1f', '#ffe27a', '#f2a900', '#ffc933'];
+const GREEN = ['#3fae3a', '#2c8f2f', '#57c44b'];
+const appleShape = P => (x, y, z, i, j, k) => {
+  const h = hash(i, j, k);
+  if (Math.abs(x - 0.04) < 0.1 && Math.abs(z) < 0.1 && y > 0.5 && y < 0.98) return '#6b3a1e';
+  if (y > 0.7 && y < 0.9 && x > 0.1 && x < 0.72 && Math.abs(z) < 0.26 * (1 - Math.abs(x - 0.41) / 0.34)) return pal(GREEN, h);
+  const r = Math.hypot(x, (y + 0.12) * 1.08, z);
+  if (r < 0.8 && !(y > 0.48 && x * x + z * z < 0.035)) return (x > 0.15 && y > 0.1 && z > 0.15 && h < 0.5) ? P[2] : pal(P, h);
+  return null;
+};
+const SHAPES = {
+  apple: appleShape(RED),
+  gold: appleShape(GOLD),
+  orange: (x, y, z, i, j, k) => {
+    const h = hash(i, j, k);
+    if (y > 0.7 && y < 0.86 && Math.hypot(x, z) < 0.16) return '#2c8f2f';
+    if (Math.hypot(x, y + 0.06, z) < 0.8) return pal(['#ff9a1f', '#ff8a12', '#ffab3d', '#f47c06'], h);
+    return null;
+  },
+  banana: (x, y, z, i, j, k) => {
+    const h = hash(i, j, k), R = 1.05, d = Math.abs(Math.hypot(x, y - 0.75) - R);
+    const t = 0.25 * (1 - 0.5 * Math.pow(Math.abs(x) / 0.88, 2));
+    if (d < t && Math.abs(z) < t && y < 0.32 && Math.abs(x) < 0.9) {
+      if (Math.abs(x) > 0.77) return '#5b3d1a';
+      return h < 0.07 ? '#c79a2a' : pal(['#ffd93b', '#f7c81e', '#ffe35c', '#f2bd12'], h);
+    }
+    return null;
+  },
+  cherry: (x, y, z, i, j, k) => {
+    const h = hash(i, j, k), top = [0.12, 0.9, 0];
+    if (y > 0.74 && y < 0.9 && x > 0.1 && x < 0.75 && Math.abs(z) < 0.2 * (1 - Math.abs(x - 0.42) / 0.36)) return pal(GREEN, h);
+    if (segDist(x, y, z, [-0.45, -0.1, 0], top) < 0.075 || segDist(x, y, z, [0.42, -0.2, 0.1], top) < 0.075) return '#4f8f2a';
+    const a = Math.hypot(x + 0.45, y + 0.48, z), b = Math.hypot(x - 0.45, y + 0.56, z - 0.1);
+    if (a < 0.42 || b < 0.42) return pal(['#d8102a', '#b90c22', '#ee2a40', '#a00a1c'], h);
+    return null;
+  },
+  kiwi: (x, y, z, i, j, k) => {
+    const h = hash(i, j, k), r = Math.hypot(x, z);
+    if (Math.abs(y) > 0.2 || r > 0.9) return null;
+    if (r > 0.78) return pal(['#7a5a2c', '#6a4b22', '#8a6835'], h);
+    if (r < 0.2) return pal(['#f3efc8', '#e9e4b0'], h);
+    if (r > 0.3 && r < 0.5 && h < 0.4) return '#1c1a12';
+    return r < 0.34 ? pal(['#c5e25a', '#b5d94a'], h) : pal(['#7cc23a', '#6bb02f', '#8fd048'], h);
+  },
+  melon: (x, y, z, i, j, k) => {
+    const h = hash(i, j, k), r = Math.hypot(x, y - 0.48);
+    if (y > 0.48 || r > 1.0 || Math.abs(z) > 0.2) return null;
+    if (r > 0.9) return pal(['#1f7a34', '#2a9142', '#17662a'], h);
+    if (r > 0.81) return '#e4f2c4';
+    if (r < 0.72 && h < 0.07) return '#191919';
+    return pal(['#f2364d', '#e52a42', '#ff4d62'], h);
+  },
+  grape: (x, y, z, i, j, k) => {
+    const h = hash(i, j, k);
+    if (y > 0.55 && Math.hypot(x - 0.02, z) < 0.09) return '#6b4a1e';
+    if (y > 0.62 && y < 0.78 && x > 0.05 && x < 0.6 && Math.abs(z) < 0.2) return pal(GREEN, h);
+    const C = [[-0.44, 0.3, 0], [0, 0.34, 0.12], [0.44, 0.3, -0.05], [0, 0.3, -0.3], [-0.22, -0.02, 0.15], [0.22, -0.02, 0.1],
+               [0, -0.05, -0.2], [0, -0.36, 0.08], [0.02, -0.66, 0]];
+    for (const c of C) if (Math.hypot(x - c[0], y - c[1], z - c[2]) < 0.3) return pal(['#7b3fd1', '#6a31bd', '#8e55e0', '#5a26a6'], h);
+    return null;
+  },
+  berry: (x, y, z, i, j, k) => {
+    const h = hash(i, j, k), r = Math.hypot(x, z);
+    if (y > 0.66 && y < 0.9 && r < 0.09) return '#3d7a22';
+    if (y > 0.5 && y <= 0.62 && r < 0.5 && (r < 0.25 || h < 0.7)) return pal(GREEN, h);
+    if (y > -0.88 && y <= 0.5 && r < 0.74 * Math.pow((y + 0.9) / 1.4, 0.6)) return h < 0.1 ? '#ffe27a' : pal(['#ff2d45', '#e61e37', '#ff4a5e'], h);
+    return null;
+  },
+  bomb: (x, y, z, i, j, k) => {
+    const h = hash(i, j, k);
+    if (y > 0.9) return Math.hypot(x - 0.1, z) < 0.14 ? (h < 0.5 ? '#ffb020' : '#ff5a1f') : null;
+    if (y > 0.72 && Math.hypot(x - 0.06, z) < 0.08) return '#a8875a';
+    if (y > 0.56 && y <= 0.72 && Math.abs(x) < 0.2 && Math.abs(z) < 0.2) return '#6c6c7a';
+    if (Math.hypot(x, y + 0.14, z) < 0.74) return (x > 0.2 && y > 0.05 && z > 0.2 && h < 0.6) ? '#6a6a7c' : pal(['#2b2b36', '#23232c', '#343441'], h);
+    return null;
+  },
+};
+/*VOX-END*/
+
+const shade = (hex, f) => {
+  const n = parseInt(hex.slice(1), 16);
+  const c = v => Math.max(0, Math.min(255, Math.round(v * f)));
+  return `rgb(${c(n >> 16)},${c((n >> 8) & 255)},${c(n & 255)})`;
+};
+function buildSprite(fn, N = 22, a = 5) {
+  const g = new Array(N * N * N).fill(null);
+  const at = (x, y, z) => (x < 0 || y < 0 || z < 0 || x >= N || y >= N || z >= N) ? null : g[x + N * (y + N * z)];
+  const colors = [];
+  for (let z = 0; z < N; z++) for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const c = fn((x + 0.5) / N * 2 - 1, (y + 0.5) / N * 2 - 1, (z + 0.5) / N * 2 - 1, x, y, z);
+    if (c) { g[x + N * (y + N * z)] = c; colors.push(c); }
+  }
+  const vis = [];
+  for (let z = 0; z < N; z++) for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const c = at(x, y, z); if (!c) continue;
+    const t = !at(x, y + 1, z), r = !at(x + 1, y, z), l = !at(x, y, z + 1);
+    if (t || r || l) vis.push({ x, y, z, c, t, r, l });
+  }
+  vis.sort((p, q) => (p.x + p.y + p.z) - (q.x + q.y + q.z));
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = N * 2 * a + 4;
+  const c2 = cv.getContext('2d'), ox = cv.width / 2, oy = N * a + 2;
+  const P = (x, y, z) => [ox + (x - z) * a, oy + (x + z) * a / 2 - y * a];
+  const quad = (pts, fill) => {
+    c2.beginPath(); c2.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < 4; i++) c2.lineTo(pts[i][0], pts[i][1]);
+    c2.closePath(); c2.fillStyle = fill; c2.fill(); c2.stroke();
+  };
+  c2.lineWidth = 0.7; c2.strokeStyle = 'rgba(0,0,0,.28)'; c2.lineJoin = 'round';
+  for (const v of vis) {
+    const { x, y, z, c } = v;
+    if (v.l) quad([P(x, y + 1, z + 1), P(x + 1, y + 1, z + 1), P(x + 1, y, z + 1), P(x, y, z + 1)], shade(c, 0.86));
+    if (v.r) quad([P(x + 1, y + 1, z), P(x + 1, y + 1, z + 1), P(x + 1, y, z + 1), P(x + 1, y, z)], shade(c, 0.62));
+    if (v.t) quad([P(x, y + 1, z), P(x + 1, y + 1, z), P(x + 1, y + 1, z + 1), P(x, y + 1, z + 1)], shade(c, 1.12));
+  }
+  return { cv, colors };
+}
+const SPR = {};
+for (const k in SHAPES) SPR[k] = buildSprite(SHAPES[k]);
+const GOOD = ['apple', 'orange', 'banana', 'cherry', 'kiwi', 'melon', 'grape', 'berry'];
+$('ic1').getContext('2d').drawImage(SPR.apple.cv, 0, 0, 184, 184);
+$('ic2').getContext('2d').drawImage(SPR.berry.cv, 0, 0, 184, 184);
+
+/* ---------- 상태 ---------- */
+let mode = 'shoot', players = 2;
+let phase = 'menu';            // menu | loading | countdown | play | over
+let scores = [0, 0], timeLeft = GAME_SECONDS, countdown = 0, lastTick = 4, clock = 0;
+let things = [], fx = [], spawnT = 0;
+let mouths = [null, null];     // 받아먹기: 플레이어별 {x,y,amt,lost}
+let guns = [null, null];       // 총쏘기: 플레이어별 {x,y,armed,hist,flash,lost}
+let lib = null, vision = null, faceTask = null, handTask = null, camReady = false;
+let lastVideoTime = -1, lastT = performance.now();
+const stars = Array.from({ length: 70 }, (_, i) => ({ x: hash(i, 1, 2) * W, y: hash(i, 3, 4) * H, a: 0.08 + hash(i, 5, 6) * 0.22 }));
+
+/* ---------- 소리 ---------- */
+let ac = null;
+function beep(freq, dur = 0.09, type = 'square', vol = 0.12, slide = 0) {
+  if (!ac) return;
+  try {
+    const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime;
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(40, freq + slide), t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur);
+  } catch (e) {}
+}
+const sfx = {
+  yum: () => { beep(660, 0.07); setTimeout(() => beep(990, 0.09), 60); },
+  star: () => { [784, 988, 1319].forEach((f, i) => setTimeout(() => beep(f, 0.1, 'triangle', 0.16), i * 70)); },
+  bad: () => beep(180, 0.3, 'sawtooth', 0.16, -120),
+  shot: () => beep(900, 0.08, 'square', 0.1, -700),
+  tick: () => beep(520, 0.08, 'triangle', 0.15),
+  go: () => beep(1040, 0.3, 'triangle', 0.18),
+  end: () => { [659, 523, 392].forEach((f, i) => setTimeout(() => beep(f, 0.22, 'triangle', 0.16), i * 160)); },
+};
+
+/* ---------- 메뉴 ---------- */
+const HOW = {
+  shoot: ['검지를 펴고 엄지를 세워 손가락 총을 만드세요. 검지 끝이 조준점이에요.<br>엄지를 검지 쪽으로 딸깍 접으면 발사! 황금사과는 5점, 폭탄은 쏘면 감점.',
+          '카메라 기준 왼쪽 사람이 플레이어 1, 오른쪽이 플레이어 2.<br>검지로 조준하고 엄지를 딸깍 접으면 발사! 황금사과 5점, 폭탄은 감점.'],
+  snack: ['고개를 움직이면 화면 속 먹보가 따라 움직여요. 입을 크게 벌리면 먹보도 입을 벌려요.<br>과일 +1, 황금사과 +5, 폭탄은 먹으면 감점!',
+          '둘이 나란히 앉으세요. 왼쪽 사람이 분홍 먹보, 오른쪽 사람이 파랑 먹보.<br>고개로 움직이고 입을 벌려 먼저 먹는 쪽이 점수를 가져가요. 폭탄은 감점!'],
+};
+function refreshMenu() {
+  document.querySelectorAll('#modes .opt').forEach(b => b.classList.toggle('sel', b.dataset.mode === mode));
+  document.querySelectorAll('#counts .opt').forEach(b => b.classList.toggle('sel', +b.dataset.n === players));
+  $('how').innerHTML = HOW[mode][players - 1];
+}
+document.querySelectorAll('#modes .opt').forEach(b => b.onclick = () => { mode = b.dataset.mode; refreshMenu(); });
+document.querySelectorAll('#counts .opt').forEach(b => b.onclick = () => { players = +b.dataset.n; refreshMenu(); });
+refreshMenu();
+
+function show(id) {
+  ['menu', 'info', 'over'].forEach(p => $(p).classList.toggle('on', p === id));
+  $('quit').classList.toggle('on', id === null);
+}
+function info(html, canBack) { $('msg').innerHTML = html; $('back').style.display = canBack ? '' : 'none'; show('info'); }
+$('back').onclick = () => { phase = 'menu'; show('menu'); };
+$('tomenu').onclick = () => { phase = 'menu'; show('menu'); };
+$('quit').onclick = () => { phase = 'menu'; show('menu'); };
+$('start').onclick = begin;
+$('again').onclick = begin;
+
+/* ---------- 준비: 카메라 + 인식 모델 ---------- */
+async function makeTask(Cls, url, extra) {
+  const build = delegate => Cls.createFromOptions(vision, {
+    baseOptions: { modelAssetPath: url, delegate }, runningMode: 'VIDEO', ...extra });
+  try { return await build('GPU'); } catch (e) { return await build('CPU'); }
+}
+async function begin() {
+  if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  if (ac && ac.state === 'suspended') ac.resume();
+  phase = 'loading';
+  try {
+    if (!camReady) {
+      info('카메라를 켜는 중…<small>브라우저가 물어보면 "허용"을 눌러 주세요.</small>');
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('nocam');
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }, audio: false });
+      video.srcObject = stream;
+      await video.play();
+      camReady = true;
+    }
+    if ((mode === 'snack' && !faceTask) || (mode === 'shoot' && !handTask)) {
+      info('인식 모델을 불러오는 중…<small>처음 한 번만 몇 초 걸려요. 인터넷 연결이 필요해요.</small>');
+      if (!lib) lib = await import(MP + '/vision_bundle.mjs');
+      if (!vision) vision = await lib.FilesetResolver.forVisionTasks(MP + '/wasm');
+      if (mode === 'snack') faceTask = await makeTask(lib.FaceLandmarker, FACE_MODEL, { numFaces: 2 });
+      else handTask = await makeTask(lib.HandLandmarker, HAND_MODEL, { numHands: 2 });
+    }
+  } catch (e) {
+    console.error(e);
+    const camErr = !camReady;
+    const n = e && e.name, embedded = window.self !== window.top;
+    const why = embedded ? '지금 미리보기 창 안에서 열려 있어서 카메라가 막혀 있어요. 바탕화면의 파일을 크롬 브라우저에서 직접 열어 주세요.'
+      : n === 'NotAllowedError' ? '카메라 권한이 차단돼 있어요. 주소창 왼쪽 아이콘 → 카메라 "허용"으로 바꾼 뒤 새로고침하세요. 윈도우 설정의 개인정보 → 카메라에서 브라우저 접근이 켜져 있는지도 확인해 주세요.'
+      : n === 'NotFoundError' ? '연결된 카메라를 찾지 못했어요. 웹캠이 연결돼 있는지 확인해 주세요.'
+      : n === 'NotReadableError' ? '다른 앱(줌, 팀즈, 카메라 앱 등)이 카메라를 쓰고 있어요. 그 앱을 끄고 다시 시도해 주세요.'
+      : '크롬 브라우저에서 파일을 직접 열어 주세요.';
+    info(camErr
+      ? '카메라를 쓸 수 없어요.<small>' + why + '<br>(오류: ' + (n || (e && e.message) || '알 수 없음') + ')</small>'
+      : '인식 모델을 불러오지 못했어요.<small>인터넷 연결을 확인하고 다시 시도해 주세요.</small>', true);
+    phase = 'menu';
+    return;
+  }
+  startRound();
+}
+
+function startRound() {
+  scores = [0, 0]; things = []; fx = []; mouths = [null, null]; guns = [null, null];
+  timeLeft = GAME_SECONDS; spawnT = 0.6; countdown = 3.999; lastTick = 4;
+  show(null);
+  phase = 'countdown';
+}
+function endRound() {
+  phase = 'over'; sfx.end();
+  $('f1').textContent = scores[0]; $('f2').textContent = scores[1];
+  $('fbox2').style.display = players === 2 ? '' : 'none';
+  $('fn1').textContent = players === 2 ? '플레이어 1' : '내 점수';
+  let w, c;
+  if (players === 2) {
+    if (scores[0] === scores[1]) { w = 'DRAW'; c = '무승부! 이건 한 판 더 해야겠는데요?'; }
+    else {
+      const win = scores[0] > scores[1] ? 1 : 2;
+      w = `PLAYER ${win} WIN`; c = `플레이어 ${win}이(가) ${Math.abs(scores[0] - scores[1])}점 차이로 이겼어요.`;
+    }
+  } else {
+    const s = scores[0];
+    w = `SCORE ${s}`;
+    c = s >= 60 ? '전설의 실력!' : s >= 40 ? '고수네요!' : s >= 20 ? '꽤 잘하는데요?' : '몸풀기 끝! 다시 도전해 보세요.';
+  }
+  $('winner').textContent = w; $('comment').textContent = c;
+  show('over');
+}
+
+/* ---------- 점수 + 터지는 효과 ---------- */
+function burst(t, big) {
+  const cols = SPR[t.k].colors, n = big ? 70 : 46;
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * 6.283, v = 80 + Math.random() * 420;
+    fx.push({ kind: 'cube', x: t.x + (Math.random() - 0.5) * 70, y: t.y + (Math.random() - 0.5) * 70,
+      vx: Math.cos(a) * v, vy: Math.sin(a) * v - 160, s: 5 + Math.random() * 9,
+      color: cols[Math.floor(Math.random() * cols.length)], life: 0.7 + Math.random() * 0.7, max: 1.4 });
+  }
+}
+function score(p, t, word) {
+  scores[p] = Math.max(0, scores[p] + t.pts);
+  burst(t, t.pts !== 1);
+  const good = t.pts > 0;
+  fx.push({ kind: 'word', x: t.x, y: t.y + 14, txt: good ? word : 'BOOM!', color: good ? '#ff8a1f' : '#ff3b3b', life: 0.8, max: 0.8 });
+  fx.push({ kind: 'pts', x: t.x, y: t.y - 26, txt: (good ? '+' : '') + t.pts, color: good ? '#ffe27a' : '#ff3b3b', life: 0.9, max: 0.9 });
+  if (!good) sfx.bad(); else if (t.pts >= 5) sfx.star(); else sfx.yum();
+}
+
+/* ---------- 인식 ---------- */
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const d2 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const sideOf = fx01 => players === 1 ? 0 : (fx01 < 0.5 ? 0 : 1);   // 거울 화면 기준 왼쪽/오른쪽
+
+function detect(now) {
+  if (mode === 'snack' && faceTask) {
+    const res = faceTask.detectForVideo(video, now);
+    const seen = [false, false];
+    for (const lm of (res.faceLandmarks || [])) {
+      const mx = 1 - (lm[13].x + lm[14].x) / 2, my = (lm[13].y + lm[14].y) / 2;
+      const p = sideOf(mx);
+      if (seen[p]) continue;
+      seen[p] = true;
+      const ratio = d2(lm[13], lm[14]) / (d2(lm[78], lm[308]) || 1);
+      const tx = clamp((mx - 0.5) * 1.7 + 0.5, 0.06, 0.94) * W;
+      const ty = clamp((my - 0.55) * 1.7 + 0.62, 0.2, 0.9) * H;
+      let m = mouths[p];
+      if (!m) m = mouths[p] = { x: tx, y: ty, amt: 0, lost: 0, raw: { x: mx, y: my } };
+      m.x += (tx - m.x) * 0.45; m.y += (ty - m.y) * 0.45; m.lost = 0; m.raw = { x: mx, y: my };
+      m.amt += (clamp((ratio - 0.1) / 0.35, 0, 1) - m.amt) * 0.6;
+    }
+    for (let p = 0; p < 2; p++) if (!seen[p] && mouths[p] && ++mouths[p].lost > 10) mouths[p] = null;
+  } else if (mode === 'shoot' && handTask) {
+    const res = handTask.detectForVideo(video, now);
+    const seen = [false, false];
+    for (const lm of (res.landmarks || [])) {
+      const p = sideOf(1 - lm[0].x);
+      if (seen[p]) continue;
+      seen[p] = true;
+      const fxn = 1 - lm[8].x, fyn = lm[8].y;
+      const tx = clamp((fxn - 0.5) * 1.45 + 0.5, 0, 1) * W, ty = clamp((fyn - 0.5) * 1.45 + 0.5, 0, 1) * H;
+      let g = guns[p];
+      if (!g) g = guns[p] = { x: tx, y: ty, armed: false, hist: [], flash: 0, lost: 0, raw: { x: fxn, y: fyn } };
+      g.x += (tx - g.x) * 0.45; g.y += (ty - g.y) * 0.45; g.lost = 0; g.raw = { x: fxn, y: fyn };
+      g.hist.push({ t: now, x: g.x, y: g.y });
+      while (g.hist.length > 1 && now - g.hist[0].t > 160) g.hist.shift();
+      // 방아쇠: 엄지 끝(4)이 검지 뿌리(5)에 가까워지면 발사. 카메라 비율을 보정해서 거리 계산
+      const ar = (video.videoWidth || 4) / (video.videoHeight || 3);
+      const q = i => ({ x: lm[i].x * ar, y: lm[i].y });
+      const trig = d2(q(4), q(5)) / (d2(q(5), q(17)) || 1);
+      if (trig > 0.85) g.armed = true;
+      else if (trig < 0.6 && g.armed) { g.armed = false; if (phase === 'play') fire(p, g); }
+    }
+    for (let p = 0; p < 2; p++) if (!seen[p] && guns[p] && ++guns[p].lost > 8) guns[p] = null;
+  }
+}
+function fire(p, g) {
+  const aim = g.hist[0] || g;       // 엄지를 접을 때 손이 흔들리기 전 위치를 사용
+  g.flash = 0.2; sfx.shot();
+  fx.push({ kind: 'ring', x: aim.x, y: aim.y, color: COLORS[p], life: 0.3, max: 0.3 });
+  let best = null, bd = 1e9;
+  for (const t of things) {
+    const d = Math.hypot(t.x - aim.x, t.y - aim.y);
+    if (d < t.r + 24 && d < bd) { best = t; bd = d; }
+  }
+  if (best) { best.dead = true; score(p, best, 'BANG!'); }
+}
+
+/* ---------- 생성 ---------- */
+function spawn() {
+  const prog = 1 - timeLeft / GAME_SECONDS, r = Math.random();
+  const t = { r: 78, rot: (Math.random() - 0.5) * 0.5, vr: (Math.random() - 0.5) * 1.2, g: 0 };
+  if (r < 0.15) { t.k = 'bomb'; t.pts = -2; }
+  else if (r < 0.22) { t.k = 'gold'; t.pts = 5; }
+  else { t.k = GOOD[Math.floor(Math.random() * GOOD.length)]; t.pts = 1; }
+  if (mode === 'shoot') {       // 아래에서 위로 던져 올림
+    t.x = (0.12 + Math.random() * 0.76) * W; t.y = H + 90;
+    t.vx = (W / 2 - t.x) * (0.15 + Math.random() * 0.4) + (Math.random() - 0.5) * 80;
+    t.vy = -(640 + Math.random() * 150); t.g = 500 + prog * 110;
+    if (t.k === 'gold') { t.vy *= 1.05; t.g *= 1.25; }
+    spawnT = Math.max(0.5, 1.0 - prog * 0.45) / (players === 2 ? 1.4 : 1);
+  } else {                      // 위에서 떨어짐
+    t.x = (0.07 + Math.random() * 0.86) * W; t.y = -90; t.vx = 0;
+    t.vy = 170 + Math.random() * 90 + prog * 150;
+    if (t.k === 'gold') t.vy *= 1.3;
+    spawnT = Math.max(0.36, 0.85 - prog * 0.4) / (players === 2 ? 1.4 : 1);
+  }
+  things.push(t);
+}
+
+/* ---------- 업데이트 ---------- */
+function update(dt) {
+  clock += dt;
+  if (phase === 'countdown') {
+    countdown -= dt;
+    const n = Math.floor(countdown);
+    if (n < lastTick) { lastTick = n; if (n >= 1) sfx.tick(); else sfx.go(); }
+    if (countdown <= 0.3) phase = 'play';
+  }
+  if (phase === 'play') {
+    timeLeft -= dt;
+    if (timeLeft <= 0) { timeLeft = 0; endRound(); return; }
+    spawnT -= dt;
+    if (spawnT <= 0) spawn();
+    for (const t of things) {
+      t.vy += t.g * dt; t.x += t.vx * dt; t.y += t.vy * dt; t.rot += t.vr * dt;
+      if (mode === 'snack') {
+        for (let p = 0; p < 2; p++) {
+          const m = mouths[p];
+          if (!m || m.amt < 0.4) continue;
+          if (Math.hypot(t.x - m.x, t.y - (m.y + 18)) < 92) { t.dead = true; m.chomp = 0.25; score(p, t, 'YUM!'); break; }
+        }
+      }
+      if ((t.y > H + 120 && t.vy > 0) || t.x < -140 || t.x > W + 140) t.dead = true;
+    }
+    things = things.filter(t => !t.dead);
+  }
+  for (const f of fx) {
+    f.life -= dt;
+    if (f.kind === 'cube') { f.x += f.vx * dt; f.y += f.vy * dt; f.vy += 900 * dt; f.vx *= 0.985; }
+    else if (f.kind === 'pts') f.y -= 70 * dt;
+  }
+  fx = fx.filter(f => f.life > 0);
+  for (const g of guns) if (g && g.flash > 0) g.flash -= dt;
+  for (const m of mouths) if (m && m.chomp > 0) m.chomp -= dt;
+}
+
+/* ---------- 그리기 ---------- */
+const PX = s => `${s}px "Press Start 2P", monospace`;
+const KR = s => `${s}px "Do Hyeon", "Malgun Gothic", sans-serif`;
+function text(t, x, y, font, color, align = 'center', glow = 0) {
+  ctx.font = font; ctx.textAlign = align; ctx.textBaseline = 'middle';
+  if (glow) { ctx.shadowColor = color; ctx.shadowBlur = glow; }
+  ctx.fillStyle = color; ctx.fillText(t, x, y); ctx.shadowBlur = 0;
+}
+function drawBackground() {
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  for (const s of stars) { ctx.fillStyle = `rgba(255,255,255,${s.a})`; ctx.fillRect(s.x, s.y, 2, 2); }
+  // 위쪽 HUD 장식선
+  ctx.strokeStyle = 'rgba(255,60,40,.55)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(24, 62); ctx.lineTo(300, 62); ctx.moveTo(W - 300, 62); ctx.lineTo(W - 24, 62); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(320, 62); ctx.lineTo(W - 320, 62); ctx.stroke();
+}
+function drawHud() {
+  const lv = Math.min(3, 1 + Math.floor((GAME_SECONDS - timeLeft) / 20));
+  const tsec = String(Math.ceil(timeLeft)).padStart(2, '0');
+  const hurry = timeLeft <= 10 && Math.floor(clock * 4) % 2 === 0;
+  if (players === 1) {
+    text(`SCORE: ${scores[0]}`, W / 2 - 20, 34, PX(18), '#59e6ff', 'right', 10);
+    text(`LEVEL ${lv}`, W / 2 + 20, 34, PX(12), '#59e6ff', 'left');
+    text(`TIME ${tsec}`, W - 30, 34, PX(14), hurry ? '#ff3b3b' : '#ff8a1f', 'right', 8);
+  } else {
+    text(`P1: ${scores[0]}`, 30, 34, PX(18), COLORS[0], 'left', 10);
+    text(`P2: ${scores[1]}`, W - 30, 34, PX(18), COLORS[1], 'right', 10);
+    text(`TIME ${tsec}`, W / 2, 28, PX(16), hurry ? '#ff3b3b' : '#ff8a1f', 'center', 8);
+    text(`LEVEL ${lv}`, W / 2, 50, PX(9), '#59e6ff');
+  }
+}
+function drawPip() {
+  const { x, y, w, h } = PIP;
+  ctx.fillStyle = '#0a0a0f'; ctx.fillRect(x, y, w, h);
+  if (camReady && video.readyState >= 2) {
+    // 카메라 화면을 4:3 비율로 잘라서 좌우 반전으로 그림
+    const vw = video.videoWidth, vh = video.videoHeight, ar = w / h;
+    let sw = vw, sh = vw / ar; if (sh > vh) { sh = vh; sw = vh * ar; }
+    ctx.save(); ctx.translate(x + w, y); ctx.scale(-1, 1);
+    ctx.drawImage(video, (vw - sw) / 2, (vh - sh) / 2, sw, sh, 0, 0, w, h); ctx.restore();
+    const mark = (raw, color) => {
+      const cx = x + ((raw.x - 0.5) * (vw / sw) + 0.5) * w, cy = y + ((raw.y - 0.5) * (vh / sh) + 0.5) * h;
+      if (cx < x || cx > x + w || cy < y || cy > y + h) return;
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 6.283); ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+    };
+    (mode === 'shoot' ? guns : mouths).forEach((o, p) => { if (o) mark(o.raw, COLORS[p]); });
+  }
+  if (players === 2) { ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = 1; ctx.setLineDash([5, 5]);
+    ctx.beginPath(); ctx.moveTo(x + w / 2, y); ctx.lineTo(x + w / 2, y + h); ctx.stroke(); ctx.setLineDash([]); }
+  ctx.strokeStyle = '#ff8a1f'; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+  text('CAM', x + 8, y - 12, PX(9), '#ff8a1f', 'left');
+}
+function drawThing(t) {
+  const s = SPR[t.k].cv;
+  ctx.save(); ctx.translate(t.x, t.y); ctx.rotate(t.rot);
+  if (t.k === 'gold') { ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 30; }
+  ctx.drawImage(s, -s.width / 2, -s.height / 2);
+  ctx.restore();
+}
+function drawCrosshair(g, p) {
+  const col = COLORS[p], r = g.flash > 0 ? 52 : 40;
+  ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(255,255,255,.35)';
+  ctx.beginPath(); ctx.arc(g.x, g.y, r, 0, 6.283); ctx.stroke();
+  // 장전 표시: 주황색 호가 돈다
+  ctx.lineWidth = 4; ctx.strokeStyle = g.armed ? '#ff8a1f' : 'rgba(255,255,255,.25)'; ctx.shadowColor = '#ff8a1f'; ctx.shadowBlur = g.armed ? 14 : 0;
+  const a0 = clock * 2.2 + p * 3.14;
+  ctx.beginPath(); ctx.arc(g.x, g.y, r, a0, a0 + 1.5); ctx.stroke(); ctx.shadowBlur = 0;
+  ctx.lineWidth = 2; ctx.strokeStyle = col;
+  ctx.beginPath();
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { ctx.moveTo(g.x + dx * 8, g.y + dy * 8); ctx.lineTo(g.x + dx * 20, g.y + dy * 20); }
+  ctx.stroke();
+  ctx.fillStyle = col; ctx.fillRect(g.x - 2.5, g.y - 2.5, 5, 5);
+  if (players === 2) text('P' + (p + 1), g.x, g.y - r - 14, PX(9), col);
+  if (!g.armed && g.flash <= 0) text('엄지를 세워 장전', g.x, g.y + r + 20, KR(19), '#c9c9d6');
+}
+function drawChomper(m, p) {       // 블록으로 된 먹보 캐릭터
+  const col = COLORS[p], u = 10, bw = 15, bh = 13;        // 가로 15칸 x 세로 13칸
+  const x0 = Math.round(m.x - bw * u / 2), y0 = Math.round(m.y - bh * u / 2 - 10 + (m.chomp > 0 ? 6 : 0));
+  const B = (cx, cy, cw, ch, c) => { ctx.fillStyle = c; ctx.fillRect(x0 + cx * u, y0 + cy * u, cw * u, ch * u); };
+  B(1, 0, 13, 13, shade(col, 0.6)); B(0, 1, 15, 11, shade(col, 0.6));
+  B(1, 1, 13, 11, col); B(1, 1, 13, 2, shade(col, 1.2));
+  B(2, -1, 2, 1, shade(col, 0.6)); B(11, -1, 2, 1, shade(col, 0.6));       // 귀
+  B(3, 3, 3, 3, '#fff'); B(9, 3, 3, 3, '#fff'); B(4, 4, 2, 2, '#111'); B(10, 4, 2, 2, '#111');
+  const mh = 1 + Math.round(m.amt * 4);
+  B(3, 7, 9, mh, '#16060a');
+  if (mh >= 3) { B(3, 7, 9, 1, '#fff'); B(5, 7, 1, 1, '#16060a'); B(9, 7, 1, 1, '#16060a'); B(5, 7 + mh - 1, 5, 1, '#ff5a6e'); }
+  ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let i = 2; i < bw - 1; i++) { ctx.moveTo(x0 + i * u, y0 + u); ctx.lineTo(x0 + i * u, y0 + 12 * u); }
+  for (let j = 2; j < bh - 1; j++) { ctx.moveTo(x0 + u, y0 + j * u); ctx.lineTo(x0 + 14 * u, y0 + j * u); }
+  ctx.stroke();
+  if (players === 2) text('P' + (p + 1), m.x, y0 - 26, PX(10), col);
+  if (m.amt < 0.4) text('아~ 벌려요', m.x, y0 + bh * u + 20, KR(20), '#c9c9d6');
+}
+function draw() {
+  drawBackground();
+  if (phase !== 'countdown' && phase !== 'play') return;
+  for (const t of things) drawThing(t);
+  for (const f of fx) {
+    const a = clamp(f.life / f.max, 0, 1);
+    if (f.kind === 'cube') {
+      ctx.globalAlpha = Math.min(1, a * 2.2);
+      ctx.fillStyle = f.color; ctx.fillRect(f.x, f.y, f.s, f.s);
+      ctx.fillStyle = 'rgba(255,255,255,.28)'; ctx.fillRect(f.x, f.y, f.s, f.s * 0.3);
+      ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(f.x + f.s * 0.72, f.y, f.s * 0.28, f.s);
+    } else if (f.kind === 'ring') {
+      ctx.globalAlpha = a; ctx.strokeStyle = f.color; ctx.lineWidth = 6 * a;
+      ctx.beginPath(); ctx.arc(f.x, f.y, 30 + (1 - a) * 60, 0, 6.283); ctx.stroke();
+    } else {
+      ctx.globalAlpha = Math.min(1, a * 2);
+      text(f.txt, f.x, f.y, PX(f.kind === 'word' ? 26 : 18), f.color, 'center', 16);
+    }
+    ctx.globalAlpha = 1;
+  }
+  if (mode === 'snack') mouths.forEach((m, p) => { if (m) drawChomper(m, p); });
+  else guns.forEach((g, p) => { if (g) drawCrosshair(g, p); });
+
+  const who = mode === 'snack' ? mouths : guns;
+  if (!who[0] && !who[1]) text(mode === 'snack' ? '얼굴이 카메라에 보이게 앉아 주세요' : '손을 카메라 앞에 들어 주세요', W / 2, H - 60, KR(26), '#c9c9d6');
+  drawHud(); drawPip();
+  if (phase === 'countdown') {
+    const n = Math.floor(countdown);
+    text(n >= 1 ? String(n) : 'GO!', W / 2, H / 2, PX(n >= 1 ? 150 : 110), '#ff8a1f', 'center', 40);
+  }
+}
+
+/* ---------- 메인 루프 ---------- */
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
+  try {
+    if ((phase === 'countdown' || phase === 'play') && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+      lastVideoTime = video.currentTime; detect(now);
+    }
+  } catch (e) { console.error(e); }
+  update(dt); draw();
+}
+if (document.fonts && document.fonts.load) { document.fonts.load('16px "Press Start 2P"'); document.fonts.load('16px "Do Hyeon"'); }
+
+// 확인용: 주소 끝에 #demo 를 붙이면 카메라 없이 과일 모양만 볼 수 있다
+if (location.hash === '#demo') {
+  show(null); $('quit').classList.remove('on');
+  const keys = Object.keys(SPR);
+  const paint = () => {
+    drawBackground();
+    keys.forEach((k, i) => drawThing({ k, x: 150 + (i % 5) * 245, y: 200 + Math.floor(i / 5) * 240, rot: 0 }));
+    burstDemo(); drawChomper({ x: 1130, y: 560, amt: 1, chomp: 0 }, 0);
+    drawCrosshair({ x: 640, y: 600, armed: true, flash: 0 }, 1); drawHud(); drawPip();
+  };
+  const burstDemo = () => { text('BANG!', 150, 590, PX(26), '#ff8a1f', 'center', 16); text('+1', 150, 550, PX(18), '#ffe27a', 'center', 16); };
+  setTimeout(paint, 900);
+} else requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
